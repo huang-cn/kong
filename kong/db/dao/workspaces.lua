@@ -1,6 +1,10 @@
 local Workspaces = {}
 
 
+local ngx = ngx
+local kong = kong
+
+
 function Workspaces:truncate()
   self.super.truncate(self)
   if kong.configuration.database == "off" then

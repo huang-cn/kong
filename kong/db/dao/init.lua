@@ -6,11 +6,13 @@ local hooks = require "kong.hooks"
 local workspaces = require "kong.workspaces"
 
 
+local kong         = kong
 local setmetatable = setmetatable
 local tostring     = tostring
 local require      = require
 local ipairs       = ipairs
 local concat       = table.concat
+local insert       = table.insert
 local error        = error
 local pairs        = pairs
 local floor        = math.floor
@@ -193,7 +195,6 @@ local function validate_options_value(self, options)
       errors.workspace = "must be a string or null"
     end
   end
-
 
   if options.show_ws_id and type(options.show_ws_id) ~= "boolean" then
     errors.show_ws_id = "must be a boolean"
@@ -486,7 +487,6 @@ end
 
 
 local function check_update(self, key, entity, options, name)
-
   local transform
   if options ~= nil then
     local ok, errors = validate_options_value(self, options)
@@ -647,7 +647,7 @@ local function find_cascade_delete_entities(self, entity)
         break
       end
 
-      table.insert(entries, { dao = dao, entity = row })
+      insert(entries, { dao = dao, entity = row })
     end
 
     ::continue::
@@ -1276,11 +1276,11 @@ function DAO:delete(primary_key, options)
   local ws_id = entity.ws_id
   local _
   _, err_t = run_hook("dao:delete:pre",
-                             entity,
-                             self.schema.name,
-                             cascade_entries,
-                             options,
-                             ws_id)
+                      entity,
+                      self.schema.name,
+                      cascade_entries,
+                      options,
+                      ws_id)
   if err_t then
     return nil, tostring(err_t), err_t
   end
@@ -1452,16 +1452,15 @@ end
 
 
 function DAO:cache_key(key, arg2, arg3, arg4, arg5, ws_id)
-
-  if self.schema.workspaceable then
-    ws_id = ws_id or workspaces.get_workspace_id()
-  end
-
   -- Fast path: passing the cache_key/primary_key entries in
   -- order as arguments, this produces the same result as
   -- the generic code below, but building the cache key
   -- becomes a single string.format operation
   if type(key) == "string" then
+    if self.schema.workspaceable then
+      ws_id = ws_id or workspaces.get_workspace_id()
+    end
+
     return fmt("%s:%s:%s:%s:%s:%s:%s", self.schema.name,
                key == nil and "" or key,
                arg2 == nil and "" or arg2,
@@ -1476,10 +1475,6 @@ function DAO:cache_key(key, arg2, arg3, arg4, arg5, ws_id)
 
   if type(key) ~= "table" then
     error("key must be a string or an entity table", 2)
-  end
-
-  if key.ws_id then
-    ws_id = key.ws_id
   end
 
   local values = new_tab(7, 0)
@@ -1503,9 +1498,18 @@ function DAO:cache_key(key, arg2, arg3, arg4, arg5, ws_id)
     values[n] = ""
   end
 
-  values[7] = ws_id or ""
+  if self.schema.workspaceable then
+    if key.ws_id then
+      values[7] = key.ws_id
+    else
+      values[7] = ws_id or workspaces.get_workspace_id()
+    end
 
-  return concat(values, ":")
+  else
+    values[7] = ""
+  end
+
+  return concat(values, ":", 1, 7)
 end
 
 

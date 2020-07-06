@@ -11,11 +11,13 @@ if jit.arch == 'arm64' then
 end
 
 
-
+local kong        = kong
+local ngx         = ngx
 local ngx_log     = ngx.log
 local ERR         = ngx.ERR
 local DEBUG       = ngx.DEBUG
 local re_sub      = ngx.re.sub
+local type        = type
 local find        = string.find
 local server_name = ngx_ssl.server_name
 local clear_certs = ngx_ssl.clear_certs
@@ -28,6 +30,8 @@ local tb_sort   = table.sort
 local tostring = tostring
 local ipairs = ipairs
 local ngx_md5 = ngx.md5
+local error = error
+local assert = assert
 
 
 local default_cert_and_key

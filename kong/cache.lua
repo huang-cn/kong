@@ -1,8 +1,11 @@
 local resty_mlcache = require "resty.mlcache"
 
 
+local ngx     = ngx
 local type    = type
 local max     = math.max
+local pairs   = pairs
+local error   = error
 local ngx_log = ngx.log
 local ERR     = ngx.ERR
 local NOTICE  = ngx.NOTICE
@@ -29,6 +32,7 @@ local cjson = require "cjson.safe"
 
 
 local fmt = string.format
+local tostring = tostring
 local now = ngx.now
 
 

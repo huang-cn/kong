@@ -62,6 +62,9 @@ local kong_global = require "kong.global"
 local PHASES = kong_global.phases
 
 
+local POOLS = {}
+
+
 _G.kong = kong_global.new() -- no versioned PDK for plugins for now
 
 
@@ -96,10 +99,11 @@ local ngx_CRIT         = ngx.CRIT
 local ngx_ERR          = ngx.ERR
 local ngx_WARN         = ngx.WARN
 local ngx_INFO         = ngx.INFO
-local ngx_DEBUG        = ngx.DEBUG
 local subsystem        = ngx.config.subsystem
+local fmt              = string.format
 local type             = type
 local error            = error
+local table            = table
 local ipairs           = ipairs
 local assert           = assert
 local tostring         = tostring
@@ -216,7 +220,7 @@ local function execute_plugins_iterator(plugins_iterator, phase, ctx)
     plugin.handler[phase](plugin.handler, configuration)
     kong_global.reset_log(kong)
 
-    if ctx then
+    if old_ws then
       ctx.workspace = old_ws
     end
   end
@@ -338,7 +342,7 @@ local function list_migrations(migtable)
     for _, mig in ipairs(t.migrations) do
       table.insert(mignames, mig.name)
     end
-    table.insert(list, string.format("%s (%s)", t.subsystem,
+    table.insert(list, fmt("%s (%s)", t.subsystem,
                        table.concat(mignames, ", ")))
   end
   return table.concat(list, " ")
@@ -557,8 +561,7 @@ function Kong.init_worker()
 
   kong.db:set_events_handler(worker_events)
 
-  ok, err = load_declarative_config(kong.configuration,
-    declarative_entities, declarative_meta)
+  ok, err = load_declarative_config(kong.configuration, declarative_entities, declarative_meta)
   if not ok then
     stash_init_worker_error("failed to load declarative config file: " .. err)
     return
@@ -638,7 +641,7 @@ function Kong.ssl_certificate()
   log_init_worker_errors(ctx)
 
   -- this is the first phase to run on an HTTPS request
-  ngx.ctx.workspace = kong.default_workspace
+  ctx.workspace = kong.default_workspace
 
   runloop.certificate.before(ctx)
 
@@ -650,10 +653,12 @@ end
 function Kong.rewrite()
   if var.kong_proxy_mode == "grpc" then
     kong_resty_ctx.apply_ref() -- if kong_proxy_mode is gRPC, this is executing
-    kong_resty_ctx.stash_ref() -- after an internal redirect. Restore (and restash)
-                               -- context to avoid re-executing phases
 
     local ctx = ngx.ctx
+
+    kong_resty_ctx.stash_ref(ctx) -- after an internal redirect. Restore (and restash)
+                                  -- context to avoid re-executing phases
+
     ctx.KONG_REWRITE_ENDED_AT = get_now_ms()
     ctx.KONG_REWRITE_TIME = ctx.KONG_REWRITE_ENDED_AT - ctx.KONG_REWRITE_START
 
@@ -661,6 +666,7 @@ function Kong.rewrite()
   end
 
   local ctx = ngx.ctx
+
   if not ctx.KONG_PROCESSING_START then
     ctx.KONG_PROCESSING_START = ngx.req.start_time() * 1000
   end
@@ -669,8 +675,10 @@ function Kong.rewrite()
     ctx.KONG_REWRITE_START = get_now_ms()
   end
 
+  ctx.workspace = kong.default_workspace
+
   kong_global.set_phase(kong, PHASES.rewrite)
-  kong_resty_ctx.stash_ref()
+  kong_resty_ctx.stash_ref(ctx)
 
   local is_https = var.https == "on"
   if not is_https then
@@ -684,13 +692,9 @@ function Kong.rewrite()
   if is_https then
     plugins_iterator = runloop.get_plugins_iterator()
   else
-    -- this is the first phase to run on a plain HTTP request
-    ngx.ctx.workspace = kong.default_workspace
-
     plugins_iterator = runloop.get_updated_plugins_iterator()
   end
 
-  ctx.workspace = kong.default_workspace
   execute_plugins_iterator(plugins_iterator, "rewrite", ctx)
 
   ctx.KONG_REWRITE_ENDED_AT = get_now_ms()
@@ -737,6 +741,7 @@ function Kong.access()
 
       kong_global.reset_log(kong)
     end
+
     ctx.workspace = old_ws
   end
 
@@ -864,29 +869,40 @@ function Kong.balancer()
   if enable_keepalive and kong_conf.upstream_keepalive_pool_size > 0
      and subsystem == "http"
   then
-    local pool = balancer_data.ip .. "|" .. balancer_data.port
-
+    local pool
     if balancer_data.scheme == "https" then
       -- upstream_host is SNI
-      pool = pool .. "|" .. ngx.var.upstream_host
-
       if ctx.service and ctx.service.client_certificate then
-        pool = pool .. "|" .. ctx.service.client_certificate.id
+        pool = fmt("%s|%s|%s|%s", balancer_data.ip,
+                                  balancer_data.port,
+                                  ngx.var.upstream_host,
+                                  ctx.service.client_certificate.id)
+      else
+        pool = fmt("%s|%s|%s", balancer_data.ip,
+                               balancer_data.port,
+                               ngx.var.upstream_host)
       end
+
+    else
+      pool = fmt("%s|%s", balancer_data.ip, balancer_data.port)
     end
 
-    pool_opts = {
-      pool = pool,
-      pool_size = kong_conf.upstream_keepalive_pool_size,
-    }
+    pool_opts = POOLS[pool]
+    if not pool_opts then
+      pool_opts = {
+        pool = pool,
+        pool_size = kong_conf.upstream_keepalive_pool_size,
+      }
+      POOLS[pool] = pool_opts
+    end
   end
 
   current_try.ip   = balancer_data.ip
   current_try.port = balancer_data.port
 
   -- set the targets as resolved
-  ngx_log(ngx_DEBUG, "setting address (try ", balancer_data.try_count, "): ",
-                     balancer_data.ip, ":", balancer_data.port)
+  --ngx_log(ngx_DEBUG, "setting address (try ", balancer_data.try_count, "): ",
+  --                   balancer_data.ip, ":", balancer_data.port)
   local ok, err = set_current_peer(balancer_data.ip, balancer_data.port, pool_opts)
   if not ok then
     ngx_log(ngx_ERR, "failed to set the current peer (address: ",
@@ -914,10 +930,10 @@ function Kong.balancer()
       ngx_log(ngx_ERR, "could not enable connection keepalive: ", err)
     end
 
-    ngx_log(ngx_DEBUG, "enabled connection keepalive (pool=", pool_opts.pool,
-                       ", pool_size=", pool_opts.pool_size,
-                       ", idle_timeout=", kong_conf.upstream_keepalive_idle_timeout,
-                       ", max_requests=", kong_conf.upstream_keepalive_max_requests, ")")
+    --ngx_log(ngx_DEBUG, "enabled connection keepalive (pool=", pool_opts.pool,
+    --                   ", pool_size=", pool_opts.pool_size,
+    --                   ", idle_timeout=", kong_conf.upstream_keepalive_idle_timeout,
+    --                   ", max_requests=", kong_conf.upstream_keepalive_max_requests, ")")
   end
 
   -- record overall latency
@@ -1141,14 +1157,16 @@ function Kong.handle_error()
   ctx.KONG_UNEXPECTED = true
 
   local old_ws = ctx.workspace
+
   log_init_worker_errors(ctx)
 
   if not ctx.plugins then
     local plugins_iterator = runloop.get_updated_plugins_iterator()
     for _ in plugins_iterator:iterate("content", ctx) do
       -- just build list of plugins
-      ctx.workspace = old_ws
     end
+
+    ctx.workspace = old_ws
   end
 
   return kong_error_handlers(ctx)

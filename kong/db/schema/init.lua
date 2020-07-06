@@ -4,12 +4,16 @@ local utils        = require "kong.tools.utils"
 local cjson        = require "cjson"
 
 
+local ngx          = ngx
+local kong         = kong
 local setmetatable = setmetatable
+local getmetatable = getmetatable
 local re_match     = ngx.re.match
 local re_find      = ngx.re.find
 local concat       = table.concat
 local insert       = table.insert
 local format       = string.format
+local tostring     = tostring
 local unpack       = unpack
 local assert       = assert
 local ipairs       = ipairs
@@ -1979,7 +1983,7 @@ function Schema:get_constraints()
         end
       end
       if not found then
-        table.insert(_workspaceable, e)
+        insert(_workspaceable, e)
       end
     end
     return _workspaceable
@@ -2116,7 +2120,7 @@ function Schema.new(definition, is_subschema)
       if not is_subschema then
         -- Store the inverse relation for implementing constraints
         local constraints = assert(_cache[field.reference]).constraints
-        table.insert(constraints, {
+        insert(constraints, {
           schema     = self,
           field_name = key,
           on_delete  = field.on_delete,
@@ -2128,7 +2132,7 @@ function Schema.new(definition, is_subschema)
   if self.workspaceable and self.name then
     if not _workspaceable[self.name] then
       _workspaceable[self.name] = true
-      table.insert(_workspaceable, { schema = self })
+      insert(_workspaceable, { schema = self })
     end
   end
 

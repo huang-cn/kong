@@ -8,6 +8,7 @@ local cache_warmup = {}
 local tostring = tostring
 local ipairs = ipairs
 local math = math
+local type = type
 local kong = kong
 local null = ngx.null
 local ngx = ngx

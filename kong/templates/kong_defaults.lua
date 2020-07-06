@@ -74,10 +74,6 @@ nginx_upstream_keepalive = 60
 nginx_upstream_keepalive_requests = 100
 nginx_upstream_keepalive_timeout = 60s
 
-nginx_daemon = on
-nginx_user = nobody nobody
-nginx_worker_processes = auto
-nginx_optimizations = on
 client_max_body_size = 0
 client_body_buffer_size = 8k
 real_ip_header = X-Real-IP

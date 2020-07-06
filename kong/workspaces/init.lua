@@ -1,6 +1,10 @@
 local base = require "resty.core.base"
 
 
+local ngx = ngx
+local kong = kong
+
+
 local workspaces = {}
 
 
@@ -28,24 +32,35 @@ function workspaces.upsert_default()
 end
 
 
-function workspaces.get_workspace()
-  local ws_id = ngx.ctx.workspace or kong.default_workspace
+function workspaces.get_workspace(ctx)
+  if not ctx then
+    ctx = ngx.ctx
+  end
+  local ws_id = ctx.workspace or kong.default_workspace
   return kong.db.workspaces:select({ id = ws_id })
 end
 
 
-function workspaces.set_workspace(ws)
-  ngx.ctx.workspace = ws and ws.id
+function workspaces.set_workspace(ws, ctx)
+  if not ctx then
+    ctx = ngx.ctx
+  end
+
+  ctx.workspace = ws and ws.id
 end
 
 
-function workspaces.get_workspace_id()
+function workspaces.get_workspace_id(ctx)
   local r = base.get_request()
   if not r then
     return nil
   end
 
-  return ngx.ctx.workspace or kong.default_workspace
+  if not ctx then
+    ctx = ngx.ctx
+  end
+
+  return ctx.workspace or kong.default_workspace
 end
 
 

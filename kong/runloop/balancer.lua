@@ -1,3 +1,4 @@
+local require = require
 local pl_tablex = require "pl.tablex"
 local singletons = require "kong.singletons"
 local workspaces = require "kong.workspaces"
@@ -7,16 +8,28 @@ local hooks = require "kong.hooks"
 -- due to startup/require order, cannot use the ones from 'singletons' here
 local dns_client = require "resty.dns.client"
 
+
+local ngx = ngx
+local kong = kong
 local table_concat = table.concat
+local table_remove = table.remove
 local crc32 = ngx.crc32_short
 local toip = dns_client.toip
 local log = ngx.log
 local sleep = ngx.sleep
+local type = type
+local pairs = pairs
+local ipairs = ipairs
+local assert = assert
+local tonumber = tonumber
+local tostring = tostring
 local min = math.min
 local max = math.max
+local match = string.match
+local find = string.find
 local sub = string.sub
 local null = ngx.null
-local find = string.find
+
 local timer_at = ngx.timer.at
 local run_hook = hooks.run_hook
 
@@ -151,7 +164,7 @@ local function load_targets_into_memory(upstream_id)
   for _, target in ipairs(target_history) do
     -- split `target` field into `name` and `port`
     local port
-    target.name, port = string.match(target.target, "^(.-):(%d+)$")
+    target.name, port = match(target.target, "^(.-):(%d+)$")
     target.port = tonumber(port)
   end
 
@@ -622,13 +635,12 @@ end
 -- @param upstream_name string.
 -- @return upstream table, or `false` if not found, or nil+error
 local function get_upstream_by_name(upstream_name)
-  local ws_id = workspaces.get_workspace_id()
-
   local upstreams_dict, err = get_all_upstreams()
   if err then
     return nil, err
   end
 
+  local ws_id = workspaces.get_workspace_id()
   local upstream_id = upstreams_dict[ws_id .. ":" .. upstream_name]
   if not upstream_id then
     return false -- no upstream by this name
@@ -796,7 +808,7 @@ end
 do
   local worker_state_version
 
-  create_balancers = function(version)
+  create_balancers = function()
     local upstreams, err = get_all_upstreams()
     if not upstreams then
       log(CRIT, "failed loading initial list of upstreams: ", err)
@@ -1199,7 +1211,7 @@ end
 local function unsubscribe_from_healthcheck_events(callback)
   for i, c in ipairs(healthcheck_subscribers) do
     if c == callback then
-      table.remove(healthcheck_subscribers, i)
+      table_remove(healthcheck_subscribers, i)
       return
     end
   end

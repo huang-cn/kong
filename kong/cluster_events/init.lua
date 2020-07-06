@@ -230,9 +230,9 @@ local function process_event(self, row, local_start_time)
     return true
   end
 
-  log(DEBUG, "new event (channel: '", row.channel, "') data: '", row.data,
-             "' nbf: '", row.nbf or "none", "' shm exptime: ",
-             self.event_ttl_shm)
+  --log(DEBUG, "new event (channel: '", row.channel, "') data: '", row.data,
+  --           "' nbf: '", row.nbf or "none", "' shm exptime: ",
+  --           self.event_ttl_shm)
 
   -- mark as ran before running in case of long-running callbacks
   local ok, err = self.events_shm:set(row.id, true, self.event_ttl_shm)
