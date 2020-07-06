@@ -428,8 +428,20 @@ local function register_events()
 
   if db.strategy == "off" then
     worker_events.register(function(default_ws)
+      balancer.stop_healthcheckers()
+
+      if ngx.worker.id() == 0 then
+        balancer.delete_all()
+      end
+
       kong.cache:flip()
       core_cache:flip()
+
+      build_plugins_iterator(utils.uuid())
+      build_router(utils.uuid())
+
+      balancer.init()
+
       kong.default_workspace = default_ws
       ngx.ctx.workspace = kong.default_workspace
     end, "declarative", "flip_config")

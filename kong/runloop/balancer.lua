@@ -4,25 +4,35 @@ local workspaces = require "kong.workspaces"
 local utils = require "kong.tools.utils"
 local hooks = require "kong.hooks"
 
--- due to startup/require order, cannot use the ones from 'singletons' here
+
+-- due to startup/require order, cannot use the ones from 'kong' here
 local dns_client = require "resty.dns.client"
 
-local table_concat = table.concat
+
 local crc32 = ngx.crc32_short
 local toip = dns_client.toip
 local log = ngx.log
 local sleep = ngx.sleep
+local null = ngx.null
 local min = math.min
 local max = math.max
+local type = type
 local sub = string.sub
-local null = ngx.null
 local find = string.find
+local match = string.match
+local pairs = pairs
+local ipairs = ipairs
+local tostring = tostring
+local tonumber = tonumber
+local assert = assert
+local table = table
 local timer_at = ngx.timer.at
 local run_hook = hooks.run_hook
 
-local CRIT  = ngx.CRIT
-local ERR   = ngx.ERR
-local WARN  = ngx.WARN
+
+local CRIT = ngx.CRIT
+local ERR = ngx.ERR
+local WARN = ngx.WARN
 local DEBUG = ngx.DEBUG
 local EMPTY_T = pl_tablex.readonly {}
 local worker_state_VERSION = "proxy-state:version"
@@ -59,7 +69,7 @@ local noop = function() end
 
 -- Caching logic
 --
--- We retain 3 entities in singletons.cache:
+-- We retain 3 entities in cache:
 --
 -- 1) `"balancer:upstreams"` - a list of upstreams
 --    to be invalidated on any upstream change
@@ -130,7 +140,7 @@ local function get_upstream_by_id(upstream_id)
   end
 
   return singletons.core_cache:get(upstream_cache_key, nil,
-                                load_upstream_into_memory, upstream_id)
+                                   load_upstream_into_memory, upstream_id)
 end
 
 
@@ -151,7 +161,7 @@ local function load_targets_into_memory(upstream_id)
   for _, target in ipairs(target_history) do
     -- split `target` field into `name` and `port`
     local port
-    target.name, port = string.match(target.target, "^(.-):(%d+)$")
+    target.name, port = match(target.target, "^(.-):(%d+)$")
     target.port = tonumber(port)
   end
 
@@ -368,7 +378,7 @@ do
       -- Do not run active healthchecks in `stream` module
       local checks = upstream.healthchecks
       if (ngx.config.subsystem == "stream" and checks.active.type ~= "tcp")
-         or (ngx.config.subsystem == "http" and checks.active.type == "tcp")
+      or (ngx.config.subsystem == "http"   and checks.active.type == "tcp")
       then
         checks = pl_tablex.deepcopy(checks)
         checks.active.healthy.interval = 0
@@ -607,7 +617,7 @@ local function get_all_upstreams()
     return singletons.core_cache:get("balancer:upstreams", opts, noop)
   end
   local upstreams_dict, err = singletons.core_cache:get("balancer:upstreams", opts,
-                                              load_upstreams_dict_into_memory)
+                                                        load_upstreams_dict_into_memory)
   if err then
     return nil, err
   end
@@ -703,19 +713,7 @@ end
 -- @param operation "create", "update" or "delete"
 -- @param target Target table with `upstream.id` field
 local function on_target_event(operation, target)
-
-  if operation == "reset" then
-    local upstreams = get_all_upstreams()
-    for ws_and_name, id in pairs(upstreams) do
-      local name = sub(ws_and_name, (find(ws_and_name, ":", 1, true)))
-      do_target_event("create", id, name)
-    end
-
-  else
-    do_target_event(operation, target.upstream.id, target.upstream.name)
-
-  end
-
+  do_target_event(operation, target.upstream.id, target.upstream.name)
 end
 
 
@@ -749,7 +747,7 @@ local create_hash = function(upstream, ctx)
     elseif hash_on == "header" then
       identifier = ngx.req.get_headers()[upstream[header_field_name]]
       if type(identifier) == "table" then
-        identifier = table_concat(identifier)
+        identifier = table.concat(identifier)
       end
 
     elseif hash_on == "cookie" then
@@ -796,7 +794,7 @@ end
 do
   local worker_state_version
 
-  create_balancers = function(version)
+  create_balancers = function()
     local upstreams, err = get_all_upstreams()
     if not upstreams then
       log(CRIT, "failed loading initial list of upstreams: ", err)
@@ -822,7 +820,6 @@ do
     log(DEBUG, "initialized ", oks, " balancer(s), ", errs, " error(s)")
 
     set_worker_state_updated()
-
   end
 
   is_worker_state_stale = function()
@@ -913,11 +910,10 @@ local function init()
       if target == nil or err then
         log(WARN, "failed loading targets for upstream ", id, ": ", err)
       end
-
     end
   end
 
-  create_balancers(utils.uuid())
+  create_balancers()
 
   if kong.configuration.worker_consistency == "eventual" then
     local frequency = kong.configuration.worker_state_update_frequency or 1
@@ -934,7 +930,6 @@ end
 
 local function do_upstream_event(operation, upstream_id, upstream_name)
   if operation == "create" then
-
     local upstream
     if kong.configuration.worker_consistency == "eventual" then
       set_worker_state_stale()
@@ -959,7 +954,6 @@ local function do_upstream_event(operation, upstream_id, upstream_name)
     end
 
   elseif operation == "delete" or operation == "update" then
-
     local upstream_cache_key = "balancer:upstreams:" .. upstream_id
     local target_cache_key = "balancer:targets:"   .. upstream_id
     if singletons.db.strategy ~= "off" then
@@ -1012,22 +1006,7 @@ end
 -- @param operation "create", "update" or "delete"
 -- @param upstream_data table with `id` and `name` fields
 local function on_upstream_event(operation, upstream_data)
-
-  if operation == "reset" then
-    init()
-
-  elseif operation == "delete_all" then
-    local upstreams = get_all_upstreams()
-    for ws_and_name, id in pairs(upstreams) do
-      local name = sub(ws_and_name, (find(ws_and_name, ":", 1, true)))
-
-      do_upstream_event("delete", id, name)
-    end
-
-  else
-    do_upstream_event(operation, upstream_data.id, upstream_data.name)
-  end
-
+  do_upstream_event(operation, upstream_data.id, upstream_data.name)
 end
 
 
@@ -1304,6 +1283,30 @@ local function get_balancer_health(upstream_id)
 end
 
 
+local function stop_healthcheckers()
+  local upstreams = get_all_upstreams()
+  for _, id in pairs(upstreams) do
+    local balancer = balancers[id]
+    if balancer then
+      stop_healthchecker(balancer)
+    end
+
+    set_balancer(id, nil)
+  end
+end
+
+
+local function delete_all()
+  local upstreams = get_all_upstreams()
+  for _, id in pairs(upstreams) do
+    singletons.core_cache:invalidate_local("balancer:upstreams:" .. id)
+    singletons.core_cache:invalidate_local("balancer:targets:" .. id)
+  end
+
+  singletons.core_cache:invalidate_local("balancer:upstreams")
+end
+
+
 --------------------------------------------------------------------------------
 -- for unit-testing purposes only
 local function _get_healthchecker(balancer)
@@ -1331,6 +1334,8 @@ return {
   get_upstream_health = get_upstream_health,
   get_upstream_by_id = get_upstream_by_id,
   get_balancer_health = get_balancer_health,
+  stop_healthcheckers = stop_healthcheckers,
+  delete_all = delete_all,
 
   -- ones below are exported for test purposes only
   _create_balancer = create_balancer,

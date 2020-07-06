@@ -165,18 +165,8 @@ end
 
 local reset_kong_shm
 do
-  local preserve_keys = {
-    "events:requests",
-    "kong:node_id",
-  }
-
   reset_kong_shm = function()
-    local preserved = {}
-
-    for _, key in ipairs(preserve_keys) do
-      -- ignore errors
-      preserved[key] = ngx.shared.kong:get(key)
-    end
+    local node_id = ngx.shared.kong:get("kong:node_id")
 
     ngx.shared.kong:flush_all()
     ngx.shared.kong:flush_expired(0)
@@ -194,9 +184,7 @@ do
       ngx.shared[shm .. "_miss"]:flush_expired(0)
     end
 
-    for _, key in ipairs(preserve_keys) do
-      ngx.shared.kong:set(key, preserved[key])
-    end
+    ngx.shared.kong:set("kong:node_id", node_id)
   end
 end
 
