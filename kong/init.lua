@@ -104,7 +104,6 @@ local error            = error
 local ipairs           = ipairs
 local assert           = assert
 local tostring         = tostring
-local coroutine        = coroutine
 local get_last_failure = ngx_balancer.get_last_failure
 local set_current_peer = ngx_balancer.set_current_peer
 local set_timeouts     = ngx_balancer.set_timeouts
@@ -716,30 +715,13 @@ function Kong.access()
 
   ctx.delay_response = true
 
-  local old_ws = ctx.workspace
   local plugins_iterator = runloop.get_plugins_iterator()
-  for plugin, plugin_conf in plugins_iterator:iterate("access", ctx) do
-    if plugin.handler._go then
-      ctx.ran_go_plugin = true
-    end
 
-    if not ctx.delayed_response then
-      kong_global.set_named_ctx(kong, "plugin", plugin.handler)
-      kong_global.set_namespaced_log(kong, plugin.name)
-
-      local err = coroutine.wrap(plugin.handler.access)(plugin.handler, plugin_conf)
-      if err then
-        kong.log.err(err)
-        ctx.delayed_response = {
-          status_code = 500,
-          content     = { message  = "An unexpected error occurred" },
-        }
-      end
-
-      kong_global.reset_log(kong)
-    end
-    ctx.workspace = old_ws
+  for _ in plugins_iterator:iterate("access", ctx) do
+    -- build complete plugins list in ctx
   end
+
+  execute_plugins_iterator(plugins_iterator, "access", ctx)
 
   if ctx.delayed_response then
     ctx.KONG_ACCESS_ENDED_AT = get_now_ms()
